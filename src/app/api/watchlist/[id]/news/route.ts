@@ -9,6 +9,9 @@ import { isUuid } from "@/lib/validate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+// Worst case: 15 s keywords + 15 s Currents (parallel) + 15 s filter = 45 s, inside maxDuration,
+// so a failure is always stored before the platform stops the function.
+const NEWS_LLM_TIMEOUT_MS = 15000;
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -19,7 +22,7 @@ export async function POST(_request: Request, context: Context): Promise<NextRes
     const item = await getWatchlistItem(id);
     if (!item) return jsonError("Watchlist item not found", 404);
     const options = item.options.map((option) => option.label);
-    const ask = (prompt: string, maxTokens: number) => callClaude({ prompt, maxTokens });
+    const ask = (prompt: string, maxTokens: number) => callClaude({ prompt, maxTokens, timeoutMs: NEWS_LLM_TIMEOUT_MS });
     try {
       const result = await runNewsPipeline(currentsSource, ask, item.title, options);
       await recordFetch(id, result, FAST_MODEL);
