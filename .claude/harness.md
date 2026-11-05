@@ -1,4 +1,4 @@
-# Profile: <PROJECT_NAME>
+# Profile: algosoupbuild
 
 machine_version: 3.1.0
 
@@ -9,7 +9,7 @@ facts only; it never restates a stage.
 
 ## slot: identity
 
-- Project: <PROJECT_NAME>. Repo `<OWNER>/<REPO>`. Working branch `dev`, production `main`.
+- Project: algosoupbuild. Repo `satvoop/algosoupbuild`. Working branch `dev`, production `main`.
 - Stack: Next.js App Router, TypeScript strict, Supabase (Postgres, Auth, RLS), Vercel,
   Vitest, Playwright. See `docs/adr/0001-stack.md`.
 - Journey evidence: Playwright against the deployment (`BASE_URL`), plus a walk of the core
@@ -116,7 +116,7 @@ product-design process.
 ## slot: deploy_steps
 
 **Step 0 (once per project, before any branch is pushed): Vercel.**
-`node scripts/setup-vercel.mjs --repo <OWNER>/<REPO> --scope <team> --vars-file .env.local`, then
+`node scripts/setup-vercel.mjs --repo satvoop/algosoupbuild --scope <team> --vars-file .env.local`, then
 `node scripts/check-vercel.mjs --project <name> --scope <team> --vars-file .env.local` reads
 `CHECK_RC=0`. A new project's first deployment is production whatever branch it came from, so
 `main` goes first. The operator puts `.env.local` in place from their own terminal; the agent
@@ -124,7 +124,7 @@ never reads it (names decide where values go: see `CLAUDE.md`, Secrets). A key a
 rotated later: `setup-vercel.mjs ... --env-only --keys <NAME>`.
 
 **Step A: Feature -> dev.** PR with the `GATE_RC=0` line quoted. Merge server-side:
-`gh api -X PUT repos/<OWNER>/<REPO>/pulls/<n>/merge -f merge_method=squash -f sha="$(gh pr view <n> --json headRefOid --jq .headRefOid)"`;
+`gh api -X PUT repos/satvoop/algosoupbuild/pulls/<n>/merge -f merge_method=squash -f sha="$(gh pr view <n> --json headRefOid --jq .headRefOid)"`;
 confirm with `gh pr view <n> --json state,mergedAt`.
 
 **Step B: dev -> main.** `bash "$(git rev-parse --show-toplevel)/scripts/release.sh" <slug>`
