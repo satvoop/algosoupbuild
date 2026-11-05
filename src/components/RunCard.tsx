@@ -1,3 +1,5 @@
+import { JsonResult } from "@/components/JsonResult";
+
 interface Run {
   id: string; strategy_name: string; status: "ok" | "error"; error: string | null; created_at: string;
   output_text: string | null; output_json: unknown; inputs_snapshot: { no_news?: boolean; articles?: { title: string; url: string }[] };
@@ -16,7 +18,7 @@ export function RunCard({ run }: { run: Run }) {
       {run.inputs_snapshot.no_news && <p className="mt-1 text-xs text-amber-700">Run with no news articles</p>}
       {run.status === "error" && <p className="mt-2 text-sm text-red-700">Run failed: {run.error}</p>}
       {run.output_json !== null && run.output_json !== undefined && (
-        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded bg-slate-50 p-2 text-xs">{JSON.stringify(run.output_json, null, 2)}</pre>
+        <JsonResult data={run.output_json} />
       )}
       {run.output_text && <p className="mt-2 whitespace-pre-wrap text-sm">{run.output_text}</p>}
       {articles.length > 0 && (
