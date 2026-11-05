@@ -101,6 +101,10 @@ describe("/api/watchlist/[id]/news", () => {
     const { POST } = await import("@/app/api/watchlist/[id]/news/route");
     expect((await POST(new Request("http://t"), params(ITEM_ID))).status).toBe(200);
     expect(news.recordFetch).toHaveBeenCalledOnce();
+    const ask = pipeline.runNewsPipeline.mock.calls[0]?.[1] as (prompt: string, maxTokens: number) => Promise<string>;
+    llm.callClaude.mockResolvedValue("ok");
+    await ask("p", 10);
+    expect(llm.callClaude).toHaveBeenCalledWith({ prompt: "p", maxTokens: 10, timeoutMs: 15000 });
   });
   it("stores a failed fetch and returns 502 on a provider error", async () => {
     watchlist.getWatchlistItem.mockResolvedValue(item);
