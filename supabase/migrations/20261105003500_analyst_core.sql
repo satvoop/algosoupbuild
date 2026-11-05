@@ -2,6 +2,8 @@
 -- Access model: server-only. RLS is on (secure defaults); no policies; all table
 -- privileges revoked from anon and authenticated so only the secret-key server
 -- client reaches these tables, behind the password cookie.
+-- APPLIED ONCE: not idempotent (bare create table, seed insert). Never re-run;
+-- any change after it is applied ships as a new migration.
 
 create table public.watchlist_items (
   id uuid primary key default gen_random_uuid(),
@@ -34,8 +36,6 @@ create index news_fetches_item_idx on public.news_fetches (watchlist_item_id, fe
 create table public.news_articles (
   id uuid primary key default gen_random_uuid(),
   news_fetch_id uuid not null references public.news_fetches (id) on delete restrict,
-  watchlist_item_id uuid not null references public.watchlist_items (id) on delete restrict,
-  provider text not null check (provider in ('currents')),
   url text not null check (url ~ '^https?://'),
   title text not null,
   source text,
@@ -48,7 +48,7 @@ create index news_articles_fetch_idx on public.news_articles (news_fetch_id);
 
 create table public.strategies (
   id uuid primary key default gen_random_uuid(),
-  name text not null unique check (length(btrim(name)) between 1 and 120),
+  name text not null check (length(btrim(name)) between 1 and 120),
   description text,
   prompt_template text not null check (length(prompt_template) between 1 and 8000),
   output_type text not null check (output_type in ('text', 'json')),
@@ -59,6 +59,9 @@ create table public.strategies (
   updated_at timestamptz not null default now(),
   check (output_type = 'text' or jsonb_typeof(output_schema) = 'object')
 );
+
+-- Names are unique among active strategies only, so an archived name can be reused.
+create unique index strategies_active_name_idx on public.strategies (lower(name)) where archived_at is null;
 
 create table public.analysis_runs (
   id uuid primary key default gen_random_uuid(),
@@ -77,11 +80,15 @@ create table public.analysis_runs (
   check (status = 'ok' or error is not null)
 );
 create index analysis_runs_item_idx on public.analysis_runs (watchlist_item_id, created_at desc);
+create index analysis_runs_strategy_idx on public.analysis_runs (strategy_id);
 
 -- Server-only: no client role may touch these tables (reason: shared-password app,
 -- every read and write goes through server routes after the cookie check).
 revoke all on public.watchlist_items, public.news_fetches, public.news_articles,
   public.strategies, public.analysis_runs from anon, authenticated;
+
+-- The LLM call logs are append-only, even for the server role (data-model.md section 4).
+revoke update, delete on public.news_fetches, public.analysis_runs from service_role;
 
 -- Seeded strategy menu (design pass P3, Sat's three seeds). Product data, not demo data.
 insert into public.strategies (name, description, prompt_template, output_type, output_schema, is_seed) values

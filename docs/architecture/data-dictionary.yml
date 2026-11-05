@@ -70,8 +70,6 @@ tables:
     columns:
       - { name: id, type: uuid, class: none, nullable: false, owner: news_articles, erasure: delete }
       - { name: news_fetch_id, type: uuid, class: none, nullable: false, owner: news_articles, erasure: delete }
-      - { name: watchlist_item_id, type: uuid, class: none, nullable: false, owner: news_articles, erasure: delete }
-      - { name: provider, type: text, class: none, nullable: false, owner: news_articles, erasure: delete }
       - { name: url, type: text, class: none, nullable: false, owner: news_articles, erasure: delete }
       - { name: title, type: text, class: none, nullable: false, owner: news_articles, erasure: delete }
       - { name: source, type: text, class: none, nullable: true, owner: news_articles, erasure: delete }

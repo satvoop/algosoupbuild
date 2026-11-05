@@ -25,7 +25,7 @@ One record per product. Column-level facts live in `data-dictionary.yml`, which 
 | --- | --- | --- | --- | --- |
 | watchlist_items | a Polymarket event the workspace tracks | the choice to track, the odds snapshot at add, soft removal | uuid (gen_random_uuid) | Home "Add to watchlist", Watchlist (S3, S8) |
 | news_fetches | one "Refresh news" execution | the queries the LLM wrote, models, provider, status, error | uuid | Watchlist item "Refresh news" (S4); critic finding 6 |
-| news_articles | an article kept by one fetch | provider fields copied, relevance score | uuid | Watchlist item article list (S4) |
+| news_articles | an article kept by one fetch (item and provider come from its fetch) | provider fields copied, relevance score | uuid | Watchlist item article list (S4) |
 | strategies | a named, stored analysis method | name, prompt template, output type, output schema, seeded flag, archive | uuid | Strategies screen (S5, S6) |
 | analysis_runs | one execution of a strategy on an item | rendered prompt, inputs snapshot, output, model, status, strategy name at run time | uuid | Watchlist item "Run" and history (S7, S8) |
 
@@ -57,7 +57,7 @@ One record per product. Column-level facts live in `data-dictionary.yml`, which 
 | Table | Role | Operation | Policy | Allow check | Deny check |
 | --- | --- | --- | --- | --- | --- |
 | all five | anon | all | none (revoked) | n/a | anon select returns `42501` (live probe) |
-| all five | authenticated | all | none (revoked) | n/a | revoke asserted in the db test |
+| all five | authenticated | all | none (revoked) | n/a | `tests/unit/migrations/analyst-core.db.test.ts`: no privilege for anon or authenticated, RLS on, per table |
 | all five | service role (server) | all | bypasses RLS | server route test against fixture client | n/a |
 
 Secure defaults already in place: RLS auto-on for new `public` tables; function execute and anonymous table access revoked by default.
@@ -70,6 +70,8 @@ Secure defaults already in place: RLS auto-on for new `public` tables; function 
 | news_fetches, news_articles | indefinite: run inputs must stay reproducible | delete by the owner in SQL | the owner |
 | strategies | indefinite | archive (`archived_at`) | any password holder |
 | analysis_runs | indefinite: the strategy record | delete by the owner in SQL | the owner |
+
+Notes: `news_fetches` and `analysis_runs` are append-only (UPDATE and DELETE revoked from service_role too). `news_fetches.kept_count` is a snapshot of the count at fetch time. Restoring a removed watchlist item clears `removed_at` on the same row: the earlier removal is not kept (accepted for the PoC). Erasing an article means also deleting the runs whose `inputs_snapshot`/`prompt_rendered` copied it. `strategies.updated_at` is set by the server on edit (no trigger). Strategy names are unique among active strategies only.
 
 ## 5. Out of scope for now
 
