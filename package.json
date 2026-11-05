@@ -39,7 +39,7 @@
     "eslint-config-next": "16.4.2",
     "supabase": "2.121.0",
     "tailwindcss": "4.3.3",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "vitest": "4.1.12",
     "yaml": "2.9.1"
   }
