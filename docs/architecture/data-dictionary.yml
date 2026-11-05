@@ -22,8 +22,95 @@
 #       - { name: owner_id, type: uuid, class: none, nullable: false, owner: auth.users, erasure: delete }
 #       - { name: title, type: text, class: none, nullable: false, owner: projects, erasure: delete }
 
-product: template
+product: algosoupbuild
 platform: postgres-supabase
 naming: { tables: plural, case: snake_case }
 
-tables: []
+tables:
+  - name: watchlist_items
+    purpose: a Polymarket event the workspace tracks
+    identity: uuidv4_unguessable_ref
+    tenancy: single
+    rls: { enabled: true, forced: false }
+    retention: "indefinite: analysis history is the product"
+    columns:
+      - { name: id, type: uuid, class: none, nullable: false, owner: watchlist_items, erasure: delete }
+      - { name: polymarket_event_id, type: text, class: none, nullable: false, owner: watchlist_items, erasure: delete }
+      - { name: slug, type: text, class: none, nullable: false, owner: watchlist_items, erasure: delete }
+      - { name: title, type: text, class: none, nullable: false, owner: watchlist_items, erasure: delete }
+      - { name: options, type: jsonb, class: none, nullable: false, owner: watchlist_items, erasure: delete }
+      - { name: volume, type: numeric, class: none, nullable: true, owner: watchlist_items, erasure: delete }
+      - { name: end_date, type: timestamptz, class: none, nullable: true, owner: watchlist_items, erasure: delete }
+      - { name: added_at, type: timestamptz, class: none, nullable: false, owner: watchlist_items, erasure: delete }
+      - { name: removed_at, type: timestamptz, class: none, nullable: true, owner: watchlist_items, erasure: delete }
+  - name: news_fetches
+    purpose: one Refresh news execution with the LLM queries used
+    identity: uuidv4_unguessable_ref
+    tenancy: single
+    rls: { enabled: true, forced: false }
+    retention: "indefinite: analysis history is the product"
+    columns:
+      - { name: id, type: uuid, class: none, nullable: false, owner: news_fetches, erasure: delete }
+      - { name: watchlist_item_id, type: uuid, class: none, nullable: false, owner: news_fetches, erasure: delete }
+      - { name: provider, type: text, class: none, nullable: false, owner: news_fetches, erasure: delete }
+      - { name: queries, type: jsonb, class: none, nullable: false, owner: news_fetches, erasure: delete }
+      - { name: model, type: text, class: none, nullable: true, owner: news_fetches, erasure: delete }
+      - { name: status, type: text, class: none, nullable: false, owner: news_fetches, erasure: delete }
+      - { name: error, type: text, class: none, nullable: true, owner: news_fetches, erasure: delete }
+      - { name: candidate_count, type: integer, class: none, nullable: false, owner: news_fetches, erasure: delete }
+      - { name: kept_count, type: integer, class: none, nullable: false, owner: news_fetches, erasure: delete }
+      - { name: filter_applied, type: boolean, class: none, nullable: false, owner: news_fetches, erasure: delete }
+      - { name: fetched_at, type: timestamptz, class: none, nullable: false, owner: news_fetches, erasure: delete }
+  - name: news_articles
+    purpose: an article kept by one news fetch
+    identity: uuidv4_unguessable_ref
+    tenancy: single
+    rls: { enabled: true, forced: false }
+    retention: "indefinite: analysis history is the product"
+    columns:
+      - { name: id, type: uuid, class: none, nullable: false, owner: news_articles, erasure: delete }
+      - { name: news_fetch_id, type: uuid, class: none, nullable: false, owner: news_articles, erasure: delete }
+      - { name: url, type: text, class: none, nullable: false, owner: news_articles, erasure: delete }
+      - { name: title, type: text, class: none, nullable: false, owner: news_articles, erasure: delete }
+      - { name: source, type: text, class: none, nullable: true, owner: news_articles, erasure: delete }
+      - { name: published_at, type: timestamptz, class: none, nullable: true, owner: news_articles, erasure: delete }
+      - { name: snippet, type: text, class: none, nullable: true, owner: news_articles, erasure: delete }
+      - { name: relevance, type: numeric, class: none, nullable: true, owner: news_articles, erasure: delete }
+      - { name: created_at, type: timestamptz, class: none, nullable: false, owner: news_articles, erasure: delete }
+  - name: strategies
+    purpose: a named stored analysis method (prompt template and output type)
+    identity: uuidv4_unguessable_ref
+    tenancy: single
+    rls: { enabled: true, forced: false }
+    retention: "indefinite: analysis history is the product"
+    columns:
+      - { name: id, type: uuid, class: none, nullable: false, owner: strategies, erasure: delete }
+      - { name: name, type: text, class: none, nullable: false, owner: strategies, erasure: delete }
+      - { name: description, type: text, class: none, nullable: true, owner: strategies, erasure: delete }
+      - { name: prompt_template, type: text, class: none, nullable: false, owner: strategies, erasure: delete }
+      - { name: output_type, type: text, class: none, nullable: false, owner: strategies, erasure: delete }
+      - { name: output_schema, type: jsonb, class: none, nullable: true, owner: strategies, erasure: delete }
+      - { name: is_seed, type: boolean, class: none, nullable: false, owner: strategies, erasure: delete }
+      - { name: archived_at, type: timestamptz, class: none, nullable: true, owner: strategies, erasure: delete }
+      - { name: created_at, type: timestamptz, class: none, nullable: false, owner: strategies, erasure: delete }
+      - { name: updated_at, type: timestamptz, class: none, nullable: false, owner: strategies, erasure: delete }
+  - name: analysis_runs
+    purpose: one execution of a strategy on a watchlist item, with its inputs
+    identity: uuidv4_unguessable_ref
+    tenancy: single
+    rls: { enabled: true, forced: false }
+    retention: "indefinite: analysis history is the product"
+    columns:
+      - { name: id, type: uuid, class: none, nullable: false, owner: analysis_runs, erasure: delete }
+      - { name: strategy_id, type: uuid, class: none, nullable: false, owner: analysis_runs, erasure: delete }
+      - { name: watchlist_item_id, type: uuid, class: none, nullable: false, owner: analysis_runs, erasure: delete }
+      - { name: strategy_name, type: text, class: none, nullable: false, owner: analysis_runs, erasure: delete }
+      - { name: prompt_rendered, type: text, class: none, nullable: false, owner: analysis_runs, erasure: delete }
+      - { name: inputs_snapshot, type: jsonb, class: none, nullable: false, owner: analysis_runs, erasure: delete }
+      - { name: output_text, type: text, class: none, nullable: true, owner: analysis_runs, erasure: delete }
+      - { name: output_json, type: jsonb, class: none, nullable: true, owner: analysis_runs, erasure: delete }
+      - { name: model, type: text, class: none, nullable: false, owner: analysis_runs, erasure: delete }
+      - { name: status, type: text, class: none, nullable: false, owner: analysis_runs, erasure: delete }
+      - { name: error, type: text, class: none, nullable: true, owner: analysis_runs, erasure: delete }
+      - { name: created_at, type: timestamptz, class: none, nullable: false, owner: analysis_runs, erasure: delete }
+

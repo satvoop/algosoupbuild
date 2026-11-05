@@ -38,3 +38,9 @@ supabase/.temp/
 
 # OS / editor
 .DS_Store
+gate.log
+npmci.log
+dbtest*.log
+unit.log
+tsc.log
+probe-anon.log

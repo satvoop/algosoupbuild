@@ -9,3 +9,4 @@ says why.
 | --- | --- | --- | --- |
 | migration-lint | Sat | 2027-01-31 | No migration linter in the gate yet (`supabase db lint` needs a running database; squawk not yet evaluated). Until then: every migration is reviewed against `docs/architecture/data-model.md`, and the secure defaults are proven by behaviour in CI (`scripts/prove-db-defaults.sh`). |
 | eslint-9-end-of-life | Sat | 2027-01-31 | ESLint 9 is out of support. ESLint 10 needs peer overrides for eslint-config-next 16.4 plugins (checked 2026-11-03). Moderate advisories are dev tooling only (minimatch via the lint chain); runtime `npm audit --omit=dev` is clean. Re-check when eslint-config-next supports 10. |
+| required-ci-checks | Sat | 2026-12-04 | GitHub Actions will not start jobs on this account (billing lock), so the rulesets omit required status checks. Every merge stands on the local gate log: its header line and `GATE_RC=0`, quoted in the PR. |
