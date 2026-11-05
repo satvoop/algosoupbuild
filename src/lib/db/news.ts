@@ -54,16 +54,20 @@ export async function recordFetch(itemId: string, result: PipelineResult, model:
   return fetchId;
 }
 
-/** The latest fetch for an item and, if it succeeded, its kept articles. */
+/** The latest fetch (for status) and the articles of the latest SUCCESSFUL fetch, so a failed refresh never hides earlier news. */
 export async function latestNews(itemId: string): Promise<{ fetch: StoredFetch | null; articles: StoredArticle[] }> {
   const client = createSupabaseAdminClient();
-  const { data, error } = await client.from("news_fetches").select("*").eq("watchlist_item_id", itemId)
+  const latest = await client.from("news_fetches").select("*").eq("watchlist_item_id", itemId)
     .order("fetched_at", { ascending: false }).limit(1).maybeSingle();
-  if (error) fail("reading news fetches", error.message);
-  const latest = (data as StoredFetch | null) ?? null;
-  if (!latest || latest.status !== "ok") return { fetch: latest, articles: [] };
+  if (latest.error) fail("reading news fetches", latest.error.message);
+  const ok = await client.from("news_fetches").select("id").eq("watchlist_item_id", itemId).eq("status", "ok")
+    .order("fetched_at", { ascending: false }).limit(1).maybeSingle();
+  if (ok.error) fail("reading news fetches", ok.error.message);
+  const fetch = (latest.data as StoredFetch | null) ?? null;
+  const okId = (ok.data as { id: string } | null)?.id;
+  if (!okId) return { fetch, articles: [] };
   const { data: articles, error: articleError } = await client.from("news_articles").select("*")
-    .eq("news_fetch_id", latest.id).order("relevance", { ascending: false, nullsFirst: false });
+    .eq("news_fetch_id", okId).order("relevance", { ascending: false, nullsFirst: false });
   if (articleError) fail("reading news articles", articleError.message);
-  return { fetch: latest, articles: (articles ?? []) as StoredArticle[] };
+  return { fetch, articles: (articles ?? []) as StoredArticle[] };
 }

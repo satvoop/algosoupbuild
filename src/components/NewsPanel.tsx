@@ -15,7 +15,7 @@ export function NewsPanel({ news, busy, disabled, onRefresh }: { news: News; bus
         </button>
       </div>
       {!fetch && <p className="mt-2 text-sm text-slate-600">No news fetched yet. Click Refresh news.</p>}
-      {fetch?.status === "error" && <p className="mt-2 text-sm text-red-700">Last refresh failed: {fetch.error}. Try again later.</p>}
+      {fetch?.status === "error" && <p className="mt-2 text-sm text-red-700">Last refresh failed: {fetch.error}. Try again later.{articles.length > 0 ? " Showing the last successful fetch." : ""}</p>}
       {fetch?.status === "ok" && (
         <p className="mt-1 text-xs text-slate-500">
           Fetched {fetch.fetched_at.replace("T", " ").slice(0, 16)} UTC - queries: {fetch.queries.join(" | ")}
@@ -34,7 +34,7 @@ export function NewsPanel({ news, busy, disabled, onRefresh }: { news: News; bus
           </li>
         ))}
       </ul>
-      {fetch?.status === "ok" && (
+      {articles.length > 0 && (
         <p className="mt-3 text-xs text-slate-500">News from <a href="https://currentsapi.services" target="_blank" rel="noreferrer" className="underline">Currents API</a>; links go to the original articles.</p>
       )}
     </section>
