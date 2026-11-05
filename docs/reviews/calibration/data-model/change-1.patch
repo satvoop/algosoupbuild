@@ -1,0 +1,94 @@
+CALIBRATION FIXTURE from docs/reviews/calibration: a reviewer test, never a real change. Never merge it.
+diff --git a/docs/architecture/data-dictionary.yml b/docs/architecture/data-dictionary.yml
+index eaa78f2..b5ac718 100644
+--- a/docs/architecture/data-dictionary.yml
++++ b/docs/architecture/data-dictionary.yml
+@@ -22,8 +22,18 @@
+ #       - { name: owner_id, type: uuid, class: none, nullable: false, owner: auth.users, erasure: delete }
+ #       - { name: title, type: text, class: none, nullable: false, owner: projects, erasure: delete }
+ 
+-product: template
++product: watchlist-calibration
+ platform: postgres-supabase
+ naming: { tables: plural, case: snake_case }
+ 
+-tables: []
++tables:
++  - name: watchlist_items
++    purpose: a ticker a signed-in user follows
++    identity: bigint_identity
++    tenancy: owner
++    rls: { enabled: true, forced: false }
++    retention: life of account
++    columns:
++      - { name: id, type: bigint, class: none, nullable: false, owner: watchlist_items, erasure: delete }
++      - { name: user_id, type: uuid, class: none, nullable: false, owner: auth.users, erasure: none }
++      - { name: created_at, type: timestamptz, class: none, nullable: false, owner: watchlist_items, erasure: delete }
+diff --git a/docs/architecture/data-model.md b/docs/architecture/data-model.md
+index faa3041..4f0f83e 100644
+--- a/docs/architecture/data-model.md
++++ b/docs/architecture/data-model.md
+@@ -24,6 +24,7 @@ be answered yet reads `OPEN until <gate>`.
+ 
+ | Entity | What it is (one line) | Owns these facts | Identity | Traces to (screen, flow, rule) |
+ | --- | --- | --- | --- | --- |
++| watchlist_items | one ticker one user follows | the user's tickers | serial | spec AC1 |
+ 
+ **Relationships:**
+ | Child | Parent | Cardinality | ON DELETE | Why |
+@@ -38,6 +39,7 @@ be answered yet reads `OPEN until <gate>`.
+ 
+ | Table | Role | Operation | Policy (USING / WITH CHECK) | Allow check | Deny check |
+ | --- | --- | --- | --- | --- | --- |
++| watchlist_items | authenticated | SELECT, INSERT | owner only | owner sees and adds own rows | covered by RLS |
+ 
+ Secure defaults already in place: RLS auto-on for new `public` tables; function execute and
+ anonymous table access revoked by default (`supabase/migrations/*_secure_defaults.sql`).
+diff --git a/supabase/migrations/20261104000000_watchlist_items.sql b/supabase/migrations/20261104000000_watchlist_items.sql
+new file mode 100644
+index 0000000..33e7785
+--- /dev/null
++++ b/supabase/migrations/20261104000000_watchlist_items.sql
+@@ -0,0 +1,14 @@
++-- Watchlist items: the tickers a signed-in user follows.
++
++create table public.watchlist_items (
++  id serial primary key,
++  user_id uuid not null references auth.users (id),
++  ticker varchar(10) not null,
++  created_at timestamp default now()
++);
++
++create policy watchlist_items_select on public.watchlist_items
++  for select to authenticated using (true);
++
++create policy watchlist_items_insert on public.watchlist_items
++  for insert to authenticated with check (true);
+diff --git a/tests/unit/migrations/watchlist-items.db.test.ts b/tests/unit/migrations/watchlist-items.db.test.ts
+new file mode 100644
+index 0000000..dfd83f4
+--- /dev/null
++++ b/tests/unit/migrations/watchlist-items.db.test.ts
+@@ -0,0 +1,22 @@
++import path from "node:path";
++import { describe, expect, it, vi } from "vitest";
++import { ROOT, applyMigrations, createCheckDatabase, readMigrations } from "../../../scripts/lib/local-postgres.mjs";
++
++vi.setConfig({ testTimeout: 30_000 });
++const MIGRATIONS = path.join(ROOT, "supabase", "migrations");
++const OWNER = "00000000-0000-0000-0000-0000000000a1";
++
++describe("watchlist_items", () => {
++  it("the owner can add and read a row", async () => {
++    const db = await createCheckDatabase(readMigrations(MIGRATIONS));
++    try {
++      await applyMigrations(db, MIGRATIONS);
++      await db.query("insert into auth.users (id) values ($1)", [OWNER]);
++      await db.query("insert into public.watchlist_items (user_id, ticker) values ($1, 'AAPL')", [OWNER]);
++      const result = await db.query("select ticker from public.watchlist_items");
++      expect(result.rows).toEqual([{ ticker: "AAPL" }]);
++    } finally {
++      await db.close();
++    }
++  });
++});

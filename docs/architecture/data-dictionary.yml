@@ -1,0 +1,29 @@
+# Data dictionary
+# Skill: `data-model` v1.0.0
+#
+# One row per table and column in supabase/migrations. scripts/check-data-dictionary.mjs
+# fails the gate when a migrated column has no row, has no valid class, or is personal,
+# special or secret without an erasure method. Write the row BEFORE the migration.
+#
+# class:      none | personal | special | financial | secret
+# identity:   bigint_identity | uuidv7 | ulid | uuidv4_unguessable_ref | natural
+# erasure:    none | delete | null | isolation_surrogate | key_destruction | tombstone
+# retention:  ISO 8601 duration (P7Y, P90D) | "life of account" | "indefinite: <reason>"
+#
+# Example row (copy, then delete this comment block's example):
+#   - name: projects
+#     purpose: a unit of work a signed-in user owns
+#     identity: uuidv4_unguessable_ref
+#     tenancy: owner
+#     rls: { enabled: true, forced: false }
+#     retention: life of account
+#     columns:
+#       - { name: id, type: uuid, class: none, nullable: false, owner: projects, erasure: delete }
+#       - { name: owner_id, type: uuid, class: none, nullable: false, owner: auth.users, erasure: delete }
+#       - { name: title, type: text, class: none, nullable: false, owner: projects, erasure: delete }
+
+product: template
+platform: postgres-supabase
+naming: { tables: plural, case: snake_case }
+
+tables: []

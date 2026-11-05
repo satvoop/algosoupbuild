@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The job id `gate` is the required status check named in the branch rulesets.
+  gate:
+    runs-on: ubuntu-latest
+    env:
+      # The secret scan diffs against what this change is going INTO: the PR's
+      # base branch, or the start of the pushed range.
+      GATE_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # The gate runs its own `npm ci` from the lockfile: the install is part of
+      # what it proves. Its exit code is the result; the log is uploaded so the
+      # GATE_RC line can be quoted from the gate's own record.
+      - name: Gate
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/gate.sh" > gate.log 2>&1; rc=$?
+          cat gate.log
+          exit $rc
+      - name: Prove every gate step can fail
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/prove-gate-fails.sh" > prove.log 2>&1; rc=$?
+          cat prove.log
+          exit $rc
+      - name: Dependency audit (runtime, high and above)
+        run: npm audit --audit-level=high --omit=dev
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gate-logs
+          path: |
+            gate.log
+            prove.log
+
+  # Proves the database secure defaults by behaviour against a real Postgres.
+  db-defaults:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317 # 17.10
+        env:
+          # Throwaway container that lives for one job, reachable only from it: trust
+          # auth means no password exists to leak.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prove secure defaults
+        env:
+          PROVE_DATABASE_URL: postgresql://postgres@localhost:5432/postgres
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/prove-db-defaults.sh" > db.log 2>&1; rc=$?
+          cat db.log
+          exit $rc
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # gitleaks lists the PR's commits
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # Free for personal accounts; an organization needs GITLEAKS_LICENSE.
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: gate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: ./node_modules/.bin/playwright install --with-deps chromium
+      # Deliberately fake, non-routable values: the app can construct its clients,
+      # and no real credential is ever placed in CI. A secret key in Actions is a
+      # standing risk for no gain.
+      - run: ./node_modules/.bin/playwright test
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder-not-a-key

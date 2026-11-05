@@ -1,0 +1,143 @@
+CALIBRATION FIXTURE from docs/reviews/calibration: a reviewer test, never a real change. Never merge it.
+diff --git a/src/app/api/watchlist/parse-ticker.ts b/src/app/api/watchlist/parse-ticker.ts
+new file mode 100644
+index 0000000..4e11d88
+--- /dev/null
++++ b/src/app/api/watchlist/parse-ticker.ts
+@@ -0,0 +1,10 @@
++const TICKER = /^[A-Z]{1,5}$/;
++
++/** The ticker from a request body, trimmed and upper-cased, or null when it is not one. */
++export function parseTicker(body: unknown): string | null {
++  if (typeof body !== "object" || body === null || !("ticker" in body)) return null;
++  const raw: unknown = body.ticker;
++  if (typeof raw !== "string") return null;
++  const ticker = raw.trim().toUpperCase();
++  return TICKER.test(ticker) ? ticker : null;
++}
+diff --git a/src/app/api/watchlist/route.test.ts b/src/app/api/watchlist/route.test.ts
+new file mode 100644
+index 0000000..96639a6
+--- /dev/null
++++ b/src/app/api/watchlist/route.test.ts
+@@ -0,0 +1,83 @@
++import { beforeEach, describe, expect, it, vi } from "vitest";
++
++type InsertResult = { error: { code: string } | null };
++const state: { user: { id: string } | null; insert: InsertResult; inserted: unknown[] } = {
++  user: null,
++  insert: { error: null },
++  inserted: [],
++};
++
++vi.mock("@/lib/supabase/server", () => ({
++  createSupabaseServerClient: async () => ({
++    auth: { getUser: async () => ({ data: { user: state.user } }) },
++    from: () => ({
++      insert: async (row: unknown) => {
++        state.inserted.push(row);
++        return state.insert;
++      },
++    }),
++  }),
++}));
++
++const { POST } = await import("./route");
++const { parseTicker } = await import("./parse-ticker");
++
++function post(body: string): Request {
++  return new Request("http://localhost/api/watchlist", { method: "POST", body, headers: { "content-type": "application/json" } });
++}
++
++beforeEach(() => {
++  state.user = { id: "user-1" };
++  state.insert = { error: null };
++  state.inserted = [];
++  vi.spyOn(console, "error").mockImplementation(() => undefined);
++});
++
++describe("POST /api/watchlist", () => {
++  it("201: adds a trimmed, upper-cased ticker for the signed-in user", async () => {
++    const response = await POST(post(JSON.stringify({ ticker: " aapl " })));
++    expect(response.status).toBe(201);
++    expect(await response.json()).toEqual({ ticker: "AAPL" });
++    expect(state.inserted).toEqual([{ user_id: "user-1", ticker: "AAPL" }]);
++  });
++
++  it("401: signed out, nothing is inserted", async () => {
++    state.user = null;
++    const response = await POST(post(JSON.stringify({ ticker: "AAPL" })));
++    expect(response.status).toBe(401);
++    expect(await response.json()).toEqual({ error: "unauthenticated" });
++    expect(state.inserted).toEqual([]);
++  });
++
++  it("400: a malformed body or an invalid ticker, nothing is inserted", async () => {
++    for (const body of ["{not json", JSON.stringify({ ticker: "TOOLONG" }), JSON.stringify({ ticker: 42 }), JSON.stringify({})]) {
++      const response = await POST(post(body));
++      expect(response.status).toBe(400);
++      expect(await response.json()).toEqual({ error: "invalid_ticker" });
++    }
++    expect(state.inserted).toEqual([]);
++  });
++
++  it("409: the ticker is already on the list (unique violation 23505)", async () => {
++    state.insert = { error: { code: "23505" } };
++    const response = await POST(post(JSON.stringify({ ticker: "AAPL" })));
++    expect(response.status).toBe(409);
++    expect(await response.json()).toEqual({ error: "duplicate" });
++  });
++
++  it("500: any other insert error is reported, not swallowed", async () => {
++    state.insert = { error: { code: "42501" } };
++    const response = await POST(post(JSON.stringify({ ticker: "AAPL" })));
++    expect(response.status).toBe(500);
++    expect(await response.json()).toEqual({ error: "insert_failed" });
++  });
++});
++
++describe("parseTicker", () => {
++  it("accepts 1-5 letters after trimming and upper-casing, and rejects anything else", () => {
++    expect(parseTicker({ ticker: "msft" })).toBe("MSFT");
++    expect(parseTicker({ ticker: "" })).toBeNull();
++    expect(parseTicker({ ticker: "BRK.B" })).toBeNull();
++    expect(parseTicker(null)).toBeNull();
++  });
++});
+diff --git a/src/app/api/watchlist/route.ts b/src/app/api/watchlist/route.ts
+new file mode 100644
+index 0000000..d1ed0a6
+--- /dev/null
++++ b/src/app/api/watchlist/route.ts
+@@ -0,0 +1,31 @@
++import { NextResponse } from "next/server";
++import { createSupabaseServerClient } from "@/lib/supabase/server";
++import { parseTicker } from "./parse-ticker";
++
++async function readJson(request: Request): Promise<unknown> {
++  try {
++    return await request.json();
++  } catch (error: unknown) {
++    // A malformed body is the one expected failure: it becomes a 400 below.
++    if (error instanceof SyntaxError) return null;
++    throw error;
++  }
++}
++
++/** Adds a ticker to the signed-in user's watchlist. */
++export async function POST(request: Request): Promise<NextResponse> {
++  const supabase = await createSupabaseServerClient();
++  const { data } = await supabase.auth.getUser();
++  if (!data.user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
++
++  const ticker = parseTicker(await readJson(request));
++  if (!ticker) return NextResponse.json({ error: "invalid_ticker" }, { status: 400 });
++
++  const { error } = await supabase.from("watchlist_items").insert({ user_id: data.user.id, ticker });
++  if (error?.code === "23505") return NextResponse.json({ error: "duplicate" }, { status: 409 });
++  if (error) {
++    console.error("watchlist insert failed", error.code);
++    return NextResponse.json({ error: "insert_failed" }, { status: 500 });
++  }
++  return NextResponse.json({ ticker }, { status: 201 });
++}

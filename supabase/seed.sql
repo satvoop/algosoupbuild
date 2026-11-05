@@ -1,0 +1,3 @@
+-- Seed data for local development and preview databases.
+-- Synthetic data only. Never real customer records, never an export from production.
+-- Use obviously fake names and the example.test domain for any email.

@@ -1,0 +1,46 @@
+CALIBRATION FIXTURE from docs/reviews/calibration: a reviewer test, never a real change. Never merge it.
+diff --git a/src/app/api/watchlist/route.test.ts b/src/app/api/watchlist/route.test.ts
+new file mode 100644
+index 0000000..9c8ccf4
+--- /dev/null
++++ b/src/app/api/watchlist/route.test.ts
+@@ -0,0 +1,18 @@
++import { describe, expect, it, vi } from "vitest";
++
++vi.mock("@/lib/supabase/server", () => ({
++  createSupabaseServerClient: async () => ({
++    auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
++    from: () => ({ insert: async () => ({ error: null }) }),
++  }),
++}));
++
++const { POST } = await import("./route");
++
++describe("POST /api/watchlist", () => {
++  it("adds a ticker", async () => {
++    const request = new Request("http://localhost/api/watchlist", { method: "POST", body: JSON.stringify({ ticker: "AAPL" }) });
++    const response = await POST(request);
++    expect(response.status).toBe(200);
++  });
++});
+diff --git a/src/app/api/watchlist/route.ts b/src/app/api/watchlist/route.ts
+new file mode 100644
+index 0000000..0bbb7ec
+--- /dev/null
++++ b/src/app/api/watchlist/route.ts
+@@ -0,0 +1,15 @@
++import { NextResponse } from "next/server";
++import { createSupabaseServerClient } from "@/lib/supabase/server";
++
++/** Adds a ticker to the signed-in user's watchlist. */
++export async function POST(request: Request): Promise<NextResponse> {
++  const body = await request.json();
++  const supabase = await createSupabaseServerClient();
++  const { data } = await supabase.auth.getUser();
++  try {
++    await supabase.from("watchlist_items").insert({ user_id: data.user?.id, ticker: body.ticker });
++  } catch {
++    // ignore
++  }
++  return NextResponse.json({ ok: true });
++}

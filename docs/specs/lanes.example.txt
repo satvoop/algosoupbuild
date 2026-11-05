@@ -1,0 +1,12 @@
+# Ownership map for a parallel build. Copy to lanes.txt at Gate 1.
+# One line per lane: <lane> <glob> <glob> ...   ("**" crosses folders, "*" does not)
+# The lead lane owns every shared file, and alone owns this map and the check's scripts
+# (the check refuses a map that does not). A path two lanes both own fails the check.
+# Checked before each merge: node <lead worktree>/scripts/check-lane-paths.mjs <lane> <lane head SHA>
+# Merged only by the same script: ... <lane> <lane head SHA> --merge <reviewed change id>
+# The check compares what git's merge of the lane into the lead's HEAD would change against
+# this map as committed at that HEAD, so a map change the lead commits applies at once.
+
+lead  package.json  package-lock.json  .gitmodules  .gitattributes  src/app/layout.tsx  src/app/globals.css  src/lib/contracts/**  supabase/**  docs/**  scripts/**  tests/unit/migrations/**
+api   src/app/api/board/**  src/lib/providers/**  tests/unit/api/**  tests/fixtures/providers/**
+ui    src/app/board/**  src/components/board/**  tests/unit/board/**  e2e/board*.spec.ts

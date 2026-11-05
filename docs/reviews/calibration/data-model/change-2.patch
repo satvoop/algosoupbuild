@@ -1,0 +1,267 @@
+CALIBRATION FIXTURE from docs/reviews/calibration: a reviewer test, never a real change. Never merge it.
+diff --git a/docs/architecture/data-dictionary.yml b/docs/architecture/data-dictionary.yml
+index eaa78f2..a53885a 100644
+--- a/docs/architecture/data-dictionary.yml
++++ b/docs/architecture/data-dictionary.yml
+@@ -22,8 +22,19 @@
+ #       - { name: owner_id, type: uuid, class: none, nullable: false, owner: auth.users, erasure: delete }
+ #       - { name: title, type: text, class: none, nullable: false, owner: projects, erasure: delete }
+ 
+-product: template
++product: watchlist-calibration
+ platform: postgres-supabase
+ naming: { tables: plural, case: snake_case }
+ 
+-tables: []
++tables:
++  - name: watchlist_items
++    purpose: a ticker a signed-in user follows
++    identity: bigint_identity
++    tenancy: owner
++    rls: { enabled: true, forced: false }
++    retention: life of account
++    columns:
++      - { name: id, type: bigint, class: none, nullable: false, owner: watchlist_items, erasure: delete }
++      - { name: user_id, type: uuid, class: personal, nullable: false, owner: auth.users, erasure: delete }
++      - { name: ticker, type: text, class: none, nullable: false, owner: watchlist_items, erasure: delete }
++      - { name: created_at, type: timestamptz, class: none, nullable: false, owner: watchlist_items, erasure: delete }
+diff --git a/docs/architecture/data-model.md b/docs/architecture/data-model.md
+index faa3041..9982c6e 100644
+--- a/docs/architecture/data-model.md
++++ b/docs/architecture/data-model.md
+@@ -8,45 +8,61 @@ be answered yet reads `OPEN until <gate>`.
+ 
+ ## 0. Depth and platform
+ 
+-**Product:** OPEN until the first spec. **Platform:** Postgres on Supabase.
+-**Migrations:** `supabase/migrations/`. **Types:** `npm run db:types`.
++**Product:** a watchlist: a signed-in user saves the tickers they follow. **Platform:**
++Postgres on Supabase.
++**Migrations:** `supabase/migrations/`. **Types:** `npm run db:types`, run after the migration
++is applied to the linked project (step 10), so they do not exist at Gate 1.
+ **Check:** `scripts/check-data-dictionary.mjs` (gate step `data-dictionary`).
+ 
+ **Classes present:**
+ | Class | Present | Evidence |
+ | --- | --- | --- |
+-| Persisted state | | |
+-| Personal data | | |
+-| Money or points | | |
+-| More than one tenant | | |
++| Persisted state | yes | `watchlist_items` (spec AC1) |
++| Personal data | yes | `user_id` identifies a person (an auth user) |
++| Money or points | no | tickers only, no prices stored |
++| More than one tenant | no | rows are owner-scoped |
+ 
+ ## 1. Domain
+ 
+ | Entity | What it is (one line) | Owns these facts | Identity | Traces to (screen, flow, rule) |
+ | --- | --- | --- | --- | --- |
++| watchlist_items | one ticker one user follows | which tickers a user follows, when added | bigint identity | spec AC1-AC4 |
+ 
+ **Relationships:**
+ | Child | Parent | Cardinality | ON DELETE | Why |
+ | --- | --- | --- | --- | --- |
++| watchlist_items | auth.users | many to one | CASCADE | a deleted account leaves no orphan rows |
+ 
+ ## 2. Invariants in the database
+ 
+ | Table | Invariant | Mechanism (NOT NULL / CHECK / FK / UNIQUE / trigger) | What breaks without it |
+ | --- | --- | --- | --- |
++| watchlist_items | a ticker is 1-5 capital letters | CHECK `ticker ~ '^[A-Z]{1,5}$'` | junk tickers reach the provider calls |
++| watchlist_items | a user follows a ticker once | UNIQUE (user_id, ticker) | duplicate rows; the route maps 23505 to 409 |
++| watchlist_items | every row has an owner | NOT NULL + FK to auth.users | rows no policy can ever show |
+ 
+ ## 3. Access model (RLS)
+ 
+ | Table | Role | Operation | Policy (USING / WITH CHECK) | Allow check | Deny check |
+ | --- | --- | --- | --- | --- | --- |
++| watchlist_items | authenticated | SELECT | USING `(select auth.uid()) = user_id` | owner sees own row | other user sees 0 of owner's rows |
++| watchlist_items | authenticated | INSERT | WITH CHECK `(select auth.uid()) = user_id` | owner adds own row | insert for another user refused 42501, no row added |
++| watchlist_items | authenticated | DELETE | USING `(select auth.uid()) = user_id` | owner removes own row | other user's delete removes 0 rows, row still there |
++| watchlist_items | authenticated | UPDATE | none (an item is added or removed, never edited) | n/a | owner's update changes nothing |
++| watchlist_items | anon | all | none (secure defaults revoke table access) | n/a | anon select refused 42501 |
+ 
+ Secure defaults already in place: RLS auto-on for new `public` tables; function execute and
+ anonymous table access revoked by default (`supabase/migrations/*_secure_defaults.sql`).
++FORCE RLS is not set: the table owner is `postgres`, which bypasses RLS by design on Supabase;
++no application role owns a table.
++Tests: `tests/unit/migrations/watchlist-items.db.test.ts`.
+ 
+ ## 4. Lifecycle
+ 
+ | Table | Retention | Erasure method | Who can trigger it |
+ | --- | --- | --- | --- |
++| watchlist_items | life of account | delete (the user removes a row; CASCADE on account deletion) | the user; account deletion |
+ 
+ ## 5. Out of scope for now
+ 
+-OPEN until the first spec.
++Shared or public watchlists; notes on an item; ordering. None is in the spec.
+diff --git a/supabase/migrations/20261104000000_watchlist_items.sql b/supabase/migrations/20261104000000_watchlist_items.sql
+new file mode 100644
+index 0000000..fcae73c
+--- /dev/null
++++ b/supabase/migrations/20261104000000_watchlist_items.sql
+@@ -0,0 +1,22 @@
++-- Watchlist items: the tickers a signed-in user follows. Applied once.
++-- Record: docs/architecture/data-model.md. Rows: docs/architecture/data-dictionary.yml.
++
++create table public.watchlist_items (
++  id bigint generated always as identity primary key,
++  user_id uuid not null references auth.users (id) on delete cascade,
++  ticker text not null check (ticker ~ '^[A-Z]{1,5}$'),
++  created_at timestamptz not null default now(),
++  -- Leads with user_id, so it also serves the foreign key and every policy predicate.
++  constraint watchlist_items_user_ticker_key unique (user_id, ticker)
++);
++
++-- RLS is already on (secure defaults). One policy per operation, each for its own role.
++-- No UPDATE policy: an item is added or removed, never edited.
++create policy watchlist_items_select_own on public.watchlist_items
++  for select to authenticated using ((select auth.uid()) = user_id);
++
++create policy watchlist_items_insert_own on public.watchlist_items
++  for insert to authenticated with check ((select auth.uid()) = user_id);
++
++create policy watchlist_items_delete_own on public.watchlist_items
++  for delete to authenticated using ((select auth.uid()) = user_id);
+diff --git a/tests/unit/migrations/watchlist-items.db.test.ts b/tests/unit/migrations/watchlist-items.db.test.ts
+new file mode 100644
+index 0000000..bc9e9e2
+--- /dev/null
++++ b/tests/unit/migrations/watchlist-items.db.test.ts
+@@ -0,0 +1,133 @@
++import path from "node:path";
++import type { PGlite } from "@electric-sql/pglite";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { ROOT, applyMigrations, createCheckDatabase, readMigrations } from "../../../scripts/lib/local-postgres.mjs";
++
++// Starting an in-process Postgres takes a few seconds on a cold worker.
++vi.setConfig({ testTimeout: 30_000 });
++const MIGRATIONS = path.join(ROOT, "supabase", "migrations");
++const OWNER = "00000000-0000-0000-0000-0000000000a1";
++const OTHER = "00000000-0000-0000-0000-0000000000b2";
++type Role = "authenticated" | "anon";
++let db: PGlite | undefined;
++
++afterEach(async () => {
++  await db?.close();
++  db = undefined;
++});
++
++async function seeded(): Promise<PGlite> {
++  db = await createCheckDatabase(readMigrations(MIGRATIONS));
++  await applyMigrations(db, MIGRATIONS);
++  await db.query("insert into auth.users (id) values ($1), ($2)", [OWNER, OTHER]);
++  await db.query("insert into public.watchlist_items (user_id, ticker) values ($1, 'AAPL')", [OWNER]);
++  return db;
++}
++
++// One transaction per check, rolled back after. The client role runs the statement;
++// then the table owner reads the owner's rows in the SAME transaction, so a row the
++// statement added or removed is still visible to the assertion.
++async function check(database: PGlite, role: Role, user: string, sql: string, params: unknown[] = []) {
++  await database.exec("begin");
++  try {
++    await database.query("select set_config('request.jwt.claim.sub', $1, true)", [user]);
++    await database.exec(`set local role ${role}`);
++    await database.exec("savepoint statement");
++    let rows: unknown[] = [];
++    let code: string | undefined;
++    try {
++      rows = (await database.query(sql, params)).rows;
++    } catch (error: unknown) {
++      // A refused statement is an expected outcome here: its code is the evidence.
++      if (!(error instanceof Error && "code" in error)) throw error;
++      code = String(error.code);
++      await database.exec("rollback to savepoint statement");
++    }
++    await database.exec("reset role");
++    const after = await database.query<{ ticker: string }>("select ticker from public.watchlist_items where user_id = $1 order by ticker", [OWNER]);
++    return { rows, code, ownerTickers: after.rows.map((row) => row.ticker) };
++  } finally {
++    await database.exec("rollback");
++  }
++}
++
++// No RETURNING on the writes: Postgres applies the SELECT policy to returned rows, so a
++// RETURNING clause would let the select policy refuse a write the write policy allowed.
++// The evidence is the owner's rows afterwards, read by the table owner.
++const SELECT = "select ticker from public.watchlist_items";
++const INSERT_FOR_OWNER = `insert into public.watchlist_items (user_id, ticker) values ('${OWNER}', 'MSFT')`;
++const DELETE_ALL = "delete from public.watchlist_items";
++const UPDATE_ALL = "update public.watchlist_items set ticker = 'MSFT'";
++
++describe("watchlist_items RLS, by behaviour", () => {
++  it("select: the owner sees their row (allow); another user sees none of it (deny)", async () => {
++    const database = await seeded();
++    expect((await check(database, "authenticated", OWNER, SELECT)).rows).toEqual([{ ticker: "AAPL" }]);
++    expect((await check(database, "authenticated", OTHER, SELECT)).rows).toEqual([]);
++  });
++
++  it("insert: the owner adds their own row (allow); a row for someone else is refused 42501 and not added (deny)", async () => {
++    const database = await seeded();
++    expect(await check(database, "authenticated", OWNER, INSERT_FOR_OWNER)).toMatchObject({ code: undefined, ownerTickers: ["AAPL", "MSFT"] });
++    expect(await check(database, "authenticated", OTHER, INSERT_FOR_OWNER)).toMatchObject({ code: "42501", ownerTickers: ["AAPL"] });
++  });
++
++  it("delete: the owner removes their own row (allow); another user's delete removes nothing (deny)", async () => {
++    const database = await seeded();
++    expect(await check(database, "authenticated", OWNER, DELETE_ALL)).toMatchObject({ code: undefined, ownerTickers: [] });
++    expect(await check(database, "authenticated", OTHER, DELETE_ALL)).toMatchObject({ code: undefined, ownerTickers: ["AAPL"] });
++  });
++
++  it("update: there is no update policy, so even the owner changes nothing", async () => {
++    const database = await seeded();
++    expect(await check(database, "authenticated", OWNER, UPDATE_ALL)).toMatchObject({ code: undefined, ownerTickers: ["AAPL"] });
++  });
++
++  it("anon: every operation is refused with 42501, not an empty result, and changes nothing", async () => {
++    const database = await seeded();
++    for (const sql of [SELECT, INSERT_FOR_OWNER, DELETE_ALL, UPDATE_ALL]) {
++      expect(await check(database, "anon", OWNER, sql)).toMatchObject({ code: "42501", ownerTickers: ["AAPL"] });
++    }
++  });
++
++  it("the CHECK and UNIQUE invariants hold for the table owner too", async () => {
++    const database = await seeded();
++    const insert = "insert into public.watchlist_items (user_id, ticker) values ($1, $2)";
++    for (const bad of ["aapl", "ABCDEF", "BRK.B", "A1", ""]) {
++      await expect(database.query(insert, [OWNER, bad])).rejects.toMatchObject({ code: "23514" });
++    }
++    await expect(database.query(insert, [OWNER, "AAPL"])).rejects.toMatchObject({ code: "23505" });
++    await expect(database.query(insert, [null, "MSFT"])).rejects.toMatchObject({ code: "23502" });
++    // A CHECK passes on NULL, so a missing ticker is refused by NOT NULL alone.
++    await expect(database.query(insert, [OWNER, null])).rejects.toMatchObject({ code: "23502" });
++    const withTime = "insert into public.watchlist_items (user_id, ticker, created_at) values ($1, 'MSFT', null)";
++    await expect(database.query(withTime, [OWNER])).rejects.toMatchObject({ code: "23502" });
++  });
++
++  it("the invariants accept what the spec allows: 1 to 5 letters, and the same ticker for another user", async () => {
++    const database = await seeded();
++    const insert = "insert into public.watchlist_items (user_id, ticker) values ($1, $2) returning ticker";
++    for (const good of ["A", "ABCDE"]) {
++      expect((await database.query(insert, [OWNER, good])).rows).toEqual([{ ticker: good }]);
++    }
++    expect((await database.query(insert, [OTHER, "AAPL"])).rows).toEqual([{ ticker: "AAPL" }]);
++  });
++
++  it("records the time a row was added (created_at defaults to now)", async () => {
++    const database = await seeded();
++    const added = await database.query<{ age: number }>(
++      "select extract(epoch from (now() - created_at))::float8 as age from public.watchlist_items where user_id = $1",
++      [OWNER],
++    );
++    const age = added.rows[0]?.age ?? Number.NaN;
++    expect(age).toBeGreaterThanOrEqual(0);
++    expect(age).toBeLessThan(60);
++  });
++
++  it("deleting the account deletes its watchlist rows (ON DELETE CASCADE)", async () => {
++    const database = await seeded();
++    await database.query("delete from auth.users where id = $1", [OWNER]);
++    const left = await database.query("select 1 from public.watchlist_items where user_id = $1", [OWNER]);
++    expect(left.rows).toEqual([]);
++  });
++});
