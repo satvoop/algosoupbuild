@@ -25,4 +25,7 @@ export const PUBLIC_ENV = {
 
 export const SERVER_ENV = {
   supabaseSecretKey: "SUPABASE_SECRET_KEY",
+  appPassword: "APP_PASSWORD",
+  anthropic: "ANTHROPIC_API_KEY",
+  currents: "CURRENTS_API_KEY",
 } as const;
